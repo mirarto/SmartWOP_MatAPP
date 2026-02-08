@@ -12,6 +12,9 @@ const reportsDir = path.join(process.cwd(), 'reports');
 // import business logic to expose via HTTP
 const { importXlsx, generateReport } = require('./importXlsx');
 const { generateTemplate } = require('./generateTemplate');
+const { parseXmlFile } = require('./parseXml');
+const multer = require('multer');
+const upload = multer({ dest: path.join(os.tmpdir(), 'matapp_uploads') });
 
 function latestReportFile() {
   if (!fs.existsSync(reportsDir)) return null;
@@ -116,6 +119,39 @@ app.post('/generate-template', async (req, res) => {
     await generateTemplate(jsonPath, xlsxPath);
     res.json({ ok: true, xlsxPath });
   } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Generate template directly from a .db (XML) file path
+app.post('/api/generate-template-from-db', async (req, res) => {
+  const { dbPath, xlsxPath } = req.body || {};
+  if (!dbPath || !xlsxPath) return res.status(400).json({ error: 'dbPath and xlsxPath required' });
+  if (!fs.existsSync(dbPath)) return res.status(404).json({ error: 'DB file not found: ' + dbPath });
+  try {
+    const parsed = parseXmlFile(dbPath);
+    const tmpJson = path.join(os.tmpdir(), 'matapp_parsed_' + Date.now() + '.json');
+    fs.writeFileSync(tmpJson, JSON.stringify(parsed, null, 2), 'utf8');
+    await generateTemplate(tmpJson, xlsxPath);
+    // cleanup tmp json
+    try { fs.unlinkSync(tmpJson); } catch (e) {}
+    res.json({ ok: true, xlsxPath });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// Upload XLSX and return a preview report (no commit)
+app.post('/api/upload-xlsx-preview', upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'file required (multipart/form-data field name: file)' });
+  const uploaded = req.file.path;
+  try {
+    const report = await generateReport(uploaded);
+    // optionally remove uploaded file after report generated
+    try { fs.unlinkSync(uploaded); } catch (e) {}
+    res.json({ ok: true, report });
+  } catch (err) {
+    try { fs.unlinkSync(uploaded); } catch (e) {}
     res.status(500).json({ error: String(err) });
   }
 });

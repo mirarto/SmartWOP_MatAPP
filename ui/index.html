@@ -61,6 +61,7 @@
             <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
               <input type="text" v-model="xlsxOutName" placeholder="output filename (e.g. materials_template.xlsx)" />
               <button @click="generateTemplate">Generate Template (from JSON)</button>
+              <button class="secondary" @click="generateFromDb">Generate from .db</button>
             </div>
             <div class="small">Možeš izabrati postojeći template ili generisati novi iz parsanog JSON-a.</div>
           </div>
@@ -76,6 +77,15 @@
             </div>
             <div class="small">Kreira backup originala ako je putanja originalne baze podešena.</div>
           </div>
+        </div>
+
+        <div style="margin-top:12px">
+          <label>Upload XLSX and preview (no commit)</label>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+            <input type="file" id="xlsxUpload" accept=".xlsx" />
+            <button @click="uploadPreview">Upload & Preview</button>
+          </div>
+          <div class="small">Ovo će poslati XLSX na server i vratiti report (ne menja .db).</div>
         </div>
 
         <div class="grid-3" style="margin-top:12px">
@@ -139,17 +149,48 @@
         },
         methods: {
           async browseDb(){
-            const r = await fetch('/dialog/open-file?ext=db');
-            const j = await r.json(); if (j.path) this.originalDbPath = j.path;
+            try {
+              const r = await fetch('/dialog/open-file?ext=db');
+              const j = await r.json();
+              if (r.ok && j.path) this.originalDbPath = j.path;
+              else this.log = 'Dialog error: ' + (j && j.error ? j.error : JSON.stringify(j));
+            } catch (e) { this.log = 'Browse DB failed: ' + e.message; }
           },
           async browseReports(){
-            const r = await fetch('/dialog/open-folder'); const j = await r.json(); if (j.path) this.reportsFolder = j.path;
+            try {
+              // try browser-native directory picker first
+              if (window.showDirectoryPicker) {
+                try {
+                  const handle = await window.showDirectoryPicker();
+                  // showDirectoryPicker doesn't expose full path for security; show name as hint
+                  this.reportsFolder = handle.name || this.reportsFolder;
+                  this.log = 'Selected folder (browser): ' + (handle.name || '(unknown)');
+                  return;
+                } catch (e) {
+                  // user cancelled or not allowed, fallback to server dialog
+                }
+              }
+              const r = await fetch('/dialog/open-folder');
+              const j = await r.json();
+              if (r.ok && j.path) this.reportsFolder = j.path;
+              else this.log = 'Dialog error: ' + (j && j.error ? j.error : JSON.stringify(j));
+            } catch (e) { this.log = 'Browse Reports failed: ' + e.message; }
           },
           async browseXlsx(){
-            const r = await fetch('/dialog/open-file?ext=xlsx'); const j = await r.json(); if (j.path) this.xlsxPath = j.path;
+            try {
+              const r = await fetch('/dialog/open-file?ext=xlsx');
+              const j = await r.json();
+              if (r.ok && j.path) this.xlsxPath = j.path;
+              else this.log = 'Dialog error: ' + (j && j.error ? j.error : JSON.stringify(j));
+            } catch (e) { this.log = 'Browse XLSX failed: ' + e.message; }
           },
           async browseXlsxToConvert(){
-            const r = await fetch('/dialog/open-file?ext=xlsx'); const j = await r.json(); if (j.path) this.xlsxToConvert = j.path;
+            try {
+              const r = await fetch('/dialog/open-file?ext=xlsx');
+              const j = await r.json();
+              if (r.ok && j.path) this.xlsxToConvert = j.path;
+              else this.log = 'Dialog error: ' + (j && j.error ? j.error : JSON.stringify(j));
+            } catch (e) { this.log = 'Browse XLSX (to convert) failed: ' + e.message; }
           },
           async generateTemplate(){
             // ask user for a JSON source; default to materials_parsed.json if exists
@@ -157,6 +198,14 @@
             const xlsxPath = this.xlsxPath.endsWith('.xlsx') ? this.xlsxPath : (this.xlsxPath.replace(/\\$/,'') + '\\' + this.xlsxOutName);
             this.log = 'Generating template...';
             const res = await fetch('/generate-template', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ jsonPath, xlsxPath }) });
+            const j = await res.json();
+            if (res.ok) { this.log = 'Template generated: ' + xlsxPath; this.xlsxPath = xlsxPath; } else { this.log = 'Error: ' + j.error; }
+          },
+          async generateFromDb(){
+            if (!this.originalDbPath) return alert('Set original DB path first');
+            const xlsxPath = this.xlsxPath.endsWith('.xlsx') ? this.xlsxPath : (this.xlsxPath.replace(/\\$/,'') + '\\' + this.xlsxOutName);
+            this.log = 'Generating template from DB...';
+            const res = await fetch('/api/generate-template-from-db', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ dbPath: this.originalDbPath, xlsxPath }) });
             const j = await res.json();
             if (res.ok) { this.log = 'Template generated: ' + xlsxPath; this.xlsxPath = xlsxPath; } else { this.log = 'Error: ' + j.error; }
           },
@@ -182,6 +231,21 @@
           async openTemplate(){ if (!this.xlsxPath) return alert('set xlsxPath'); await fetch('/open', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ filePath: this.xlsxPath, sheetName: 'Materials', row: 1 }) }); },
           async openOutputDb(){ if (!this.outDbPath) return alert('set outDbPath'); const folder = this.outDbPath.replace(/[^\\]+$/, ''); await fetch('/dialog/open-folder'); /* best-effort: open folder via Start-Process is not implemented here */ alert('Use Explorer to open: ' + folder); },
           async openAt(sheet, row){ if (!this.xlsxToConvert && !this.xlsxPath) return alert('set excel path'); const file = this.xlsxToConvert || this.xlsxPath; await fetch('/open', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ filePath: file, sheetName: sheet, row }) }); }
+          ,
+          async uploadPreview(){
+            const inp = document.getElementById('xlsxUpload');
+            if (!inp || !inp.files || inp.files.length === 0) return alert('Choose an .xlsx file to upload');
+            const file = inp.files[0];
+            const fd = new FormData(); fd.append('file', file);
+            this.log = 'Uploading file for preview...';
+            const res = await fetch('/api/upload-xlsx-preview', { method: 'POST', body: fd });
+            const j = await res.json();
+            if (res.ok) {
+              this.report = j.report; this.lastReportPreview = JSON.stringify(j.report.sample, null, 2); this.log = 'Preview report received.';
+            } else {
+              this.log = 'Preview failed: ' + j.error;
+            }
+          }
         }
       }).mount('#app');
     </script>
