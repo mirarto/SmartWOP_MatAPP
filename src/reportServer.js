@@ -141,6 +141,31 @@ app.post('/api/generate-template-from-db', async (req, res) => {
   }
 });
 
+// Generate template from uploaded DB file and return XLSX as download
+app.post('/api/generate-template-upload', upload.single('dbfile'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'dbfile required (multipart/form-data field name: dbfile)' });
+  const uploadedDb = req.file.path;
+  const tmpJson = path.join(os.tmpdir(), 'matapp_parsed_' + Date.now() + '.json');
+  const tmpXlsx = path.join(os.tmpdir(), 'matapp_template_' + Date.now() + '.xlsx');
+  try {
+    const parsed = parseXmlFile(uploadedDb);
+    fs.writeFileSync(tmpJson, JSON.stringify(parsed, null, 2), 'utf8');
+    await generateTemplate(tmpJson, tmpXlsx);
+    // send xlsx as attachment
+    res.download(tmpXlsx, 'materials_template.xlsx', (err) => {
+      // cleanup
+      try { fs.unlinkSync(tmpJson); } catch (e) {}
+      try { fs.unlinkSync(tmpXlsx); } catch (e) {}
+      try { fs.unlinkSync(uploadedDb); } catch (e) {}
+      if (err) console.error('Error sending generated xlsx', err);
+    });
+  } catch (err) {
+    try { fs.unlinkSync(tmpJson); } catch (e) {}
+    try { fs.unlinkSync(uploadedDb); } catch (e) {}
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // Upload XLSX and return a preview report (no commit)
 app.post('/api/upload-xlsx-preview', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'file required (multipart/form-data field name: file)' });

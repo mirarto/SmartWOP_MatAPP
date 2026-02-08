@@ -62,6 +62,8 @@
               <input type="text" v-model="xlsxOutName" placeholder="output filename (e.g. materials_template.xlsx)" />
               <button @click="generateTemplate">Generate Template (from JSON)</button>
               <button class="secondary" @click="generateFromDb">Generate from .db</button>
+              <input type="file" id="dbUpload" accept=".db" style="margin-left:6px" />
+              <button class="secondary" @click="generateFromUploadedDb">Generate from uploaded .db</button>
             </div>
             <div class="small">Možeš izabrati postojeći template ili generisati novi iz parsanog JSON-a.</div>
           </div>
@@ -86,6 +88,15 @@
             <button @click="uploadPreview">Upload & Preview</button>
           </div>
           <div class="small">Ovo će poslati XLSX na server i vratiti report (ne menja .db).</div>
+        </div>
+
+        <div style="margin-top:12px">
+          <label>Folder picker fallback (browser)</label>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+            <input type="file" id="dirPicker" webkitdirectory directory multiple style="display:inline-block" />
+            <button class="secondary" @click="useSelectedFolder">Use selected folder</button>
+          </div>
+          <div class="small">Ovo omogućava da izabereš folder u browseru; iz bezbednosnih razloga browser neće otkriti puni path — koristi se samo za prikaz i eventualni upload fajlova.</div>
         </div>
 
         <div class="grid-3" style="margin-top:12px">
@@ -209,6 +220,22 @@
             const j = await res.json();
             if (res.ok) { this.log = 'Template generated: ' + xlsxPath; this.xlsxPath = xlsxPath; } else { this.log = 'Error: ' + j.error; }
           },
+          async generateFromUploadedDb(){
+            const inp = document.getElementById('dbUpload');
+            if (!inp || !inp.files || inp.files.length === 0) return alert('Choose a .db file to upload');
+            const file = inp.files[0];
+            const fd = new FormData(); fd.append('dbfile', file);
+            this.log = 'Uploading DB for template generation...';
+            const res = await fetch('/api/generate-template-upload', { method: 'POST', body: fd });
+            if (res.ok) {
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a'); a.href = url; a.download = this.xlsxOutName || 'materials_template.xlsx'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+              this.log = 'Template downloaded.';
+            } else {
+              const j = await res.json(); this.log = 'Generate/upload failed: ' + (j && j.error ? j.error : JSON.stringify(j));
+            }
+          },
           async runImport(){
             if (!this.xlsxToConvert) { alert('Select XLSX to convert'); return; }
             if (!this.outDbPath) { alert('Set output DB path'); return; }
@@ -245,6 +272,17 @@
             } else {
               this.log = 'Preview failed: ' + j.error;
             }
+          }
+
+          ,
+          useSelectedFolder(){
+            const inp = document.getElementById('dirPicker');
+            if (!inp || !inp.files || inp.files.length === 0) return alert('Select a folder first');
+            // show name of selected folder (can't reliably get full path)
+            const first = inp.files[0];
+            const pathHint = first.webkitRelativePath ? first.webkitRelativePath.split('/')[0] : (first.name || '(selected)');
+            this.reportsFolder = pathHint;
+            this.log = 'Selected folder (client): ' + pathHint + ' — browser cannot reveal full path for security reasons.';
           }
         }
       }).mount('#app');
