@@ -34,6 +34,50 @@ npm install
 Brzi primeri (PowerShell)
 -------------------------
 
+CLI reference — kratka uputstva
+--------------------------------
+
+Kratko objašnjenje dostupnih CLI komandi i najčešće korišćenih opcija:
+
+- Parsiranje `.db` u JSON
+	- Svrha: brzo inspekcija XML strukture u čitljivom obliku.
+	- Komanda:
+
+```powershell
+node src/cli.js parse "<putanja-do-db.db>" <out.json>
+```
+
+- Generisanje XLSX template-a
+	- Svrha: napravi multi-sheet Excel fajl koji može uređivati neprogramer.
+	- Komanda:
+
+```powershell
+node src/cli.js generate-template <parsed.json> <out-template.xlsx>
+```
+
+- Import iz XLSX nazad u `.db` (sa backup-om i izveštajem)
+	- Svrha: učitaj izmenjeni Excel i napiši novu XML `.db` datoteku.
+	- Osnovna komanda:
+
+```powershell
+node src/cli.js import-xlsx <in.xlsx> <out.db> "<original.db>" [--report] [--report-full] [--force] [--report-out <path>]
+```
+
+	- Najvažnije opcije:
+		- `--report` — sačuvaj sažeti JSON report (`reports/report-<ts>.json`).
+		- `--report-full` — sačuvaj detaljniji report sa primerima i duplikatima.
+		- `--force` — prepiši `out.db` ako već postoji (koristiti pažljivo).
+		- `--report-out <path>` — sačuvaj report na prilagođenu lokaciju.
+
+- Pokretanje lokalnog UI/report servera
+
+```powershell
+node src/reportServer.js
+# Otvori u browseru: http://localhost:3000/
+```
+
+Ovo je sažeta referenca; za brze primere pogledaj dole "Brzi primeri" koji sadrže konkretne komande i objašnjenja.
+
 1) Parsiraj `.db` u JSON
 
 ```powershell
