@@ -1,0 +1,22 @@
+# Node modules
+node_modules/
+
+# Reports and generated outputs
+reports/
+*.xlsx
+*.xlsm
+*.db
+*.db.bak.*
+*.json
+
+# OS files
+Thumbs.db
+.DS_Store
+~$*
+
+# Editor
+.vscode/
+.idea/
+
+# Logs
+npm-debug.log*

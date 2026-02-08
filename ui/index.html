@@ -1,0 +1,220 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>MatAPP — Report & Import</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <style>
+      :root{--bg:#f6f8fb;--card:#fff;--accent:#2563eb;--muted:#6b7280}
+      body{font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif;background:var(--bg);margin:0;padding:24px;color:#111}
+      .wrap{max-width:1100px;margin:0 auto}
+      header{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+      h1{font-size:20px;margin:0}
+      .row{display:flex;gap:12px}
+      .card{background:var(--card);box-shadow:0 1px 3px rgba(16,24,40,0.06);border-radius:8px;padding:14px}
+      .controls{display:grid;grid-template-columns:1fr 300px;gap:12px;margin-bottom:12px}
+      label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+      input[type=text]{width:100%;padding:8px;border:1px solid #e6e9ef;border-radius:6px}
+      button{background:var(--accent);color:#fff;border:none;padding:8px 10px;border-radius:6px;cursor:pointer}
+      button.secondary{background:#f3f4f6;color:#111}
+      .small{font-size:12px;color:var(--muted)}
+      .log{background:#0f172a;color:#fff;padding:8px;border-radius:6px;height:110px;overflow:auto;font-family:monospace;font-size:12px}
+      .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+      .duplicates{margin-top:12px}
+      table{width:100%;border-collapse:collapse}
+      th,td{border-bottom:1px solid #eee;padding:6px;text-align:left}
+    </style>
+  </head>
+  <body>
+    <div id="app" class="wrap">
+      <header>
+        <h1>MatAPP — Report & Import</h1>
+        <div class="small">Lokalni alat za uređivanje i regeneraciju .db iz XLSX-a</div>
+      </header>
+
+      <div class="card">
+        <div class="controls">
+          <div>
+            <label>Izaberi izvorni `.db` fajl (original baza)</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" v-model="originalDbPath" placeholder="C:\\path\\to\\materials_test.db" />
+              <button @click="browseDb">Browse</button>
+            </div>
+          </div>
+          <div>
+            <label>Folder za report-e (destinacija)</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" v-model="reportsFolder" />
+              <button class="secondary" @click="browseReports">Choose</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <div>
+            <label>Excel template (xlsx) — folder ili fajl</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" v-model="xlsxPath" placeholder="C:\\path\\to\\materials_template.xlsx" />
+              <button class="secondary" @click="browseXlsx">Browse</button>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+              <input type="text" v-model="xlsxOutName" placeholder="output filename (e.g. materials_template.xlsx)" />
+              <button @click="generateTemplate">Generate Template (from JSON)</button>
+            </div>
+            <div class="small">Možeš izabrati postojeći template ili generisati novi iz parsanog JSON-a.</div>
+          </div>
+          <div>
+            <label>Fajl za konverziju (XLSX → new .db)</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" v-model="xlsxToConvert" placeholder="C:\\path\\to\\edited_template.xlsx" />
+              <button @click="browseXlsxToConvert" class="secondary">Choose</button>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+              <input type="text" v-model="outDbPath" placeholder="C:\\path\\to\\materials_new.db" />
+              <button @click="runImport">Import XLSX → .db</button>
+            </div>
+            <div class="small">Kreira backup originala ako je putanja originalne baze podešena.</div>
+          </div>
+        </div>
+
+        <div class="grid-3" style="margin-top:12px">
+          <div>
+            <label>Report preview</label>
+            <div class="log">{{ lastReportPreview }}</div>
+          </div>
+          <div>
+            <label>Actions</label>
+            <div style="display:flex;gap:8px">
+              <button @click="loadLatestReport">Load latest report</button>
+              <button class="secondary" @click="openTemplate">Open template</button>
+              <button class="secondary" @click="openOutputDb">Open output .db folder</button>
+            </div>
+          </div>
+          <div>
+            <label>Log</label>
+            <div class="log">{{ log }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card duplicates">
+        <h3>Summary / Duplicates</h3>
+        <div v-if="report">
+          <table v-if="report.sample">
+            <thead><tr><th>Sheet</th><th>Count</th><th>Sample rows</th></tr></thead>
+            <tbody>
+              <tr><td>Materials</td><td>{{ report.materials }}</td><td><span v-for="s in report.sample.materials">[{{s.row}} {{s.material_name}}] </span></td></tr>
+              <tr><td>Panels</td><td>{{ report.panels }}</td><td><span v-for="s in report.sample.panels">[{{s.row}} {{s.panel_name}}] </span></td></tr>
+              <tr><td>Layers</td><td>{{ report.layers }}</td><td><span v-for="s in report.sample.layers">[{{s.row}} {{s.layer_name}}] </span></td></tr>
+            </tbody>
+          </table>
+          <div style="margin-top:8px">
+            <strong>Material duplicates:</strong>
+            <div v-for="d in report.duplicateMaterialNames" :key="JSON.stringify(d)" style="padding:6px;border:1px solid #eee;margin-top:6px">
+              <div><strong>Name:</strong> {{d.name || '(missing)'}} — Rows: {{d.rows ? d.rows.join(', ') : 'n/a'}}</div>
+              <button class="secondary" @click="openAt('Materials', (d.rows&&d.rows[0])|| (d.rows_full&&d.rows_full[0].__row))">Open in Excel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <script>
+      const { createApp } = Vue;
+      createApp({
+        data() {
+          return {
+            originalDbPath: '',
+            reportsFolder: `${location.pathname ? '' : ''}C:\\_smartWOP\\_Projects\\MatAPP\\reports`,
+            xlsxPath: `C:\\_smartWOP\\_Projects\\MatAPP\\materials_template.xlsx`,
+            xlsxOutName: 'materials_template.xlsx',
+            xlsxToConvert: '',
+            outDbPath: `C:\\_smartWOP\\_Projects\\MatAPP\\materials_new.db`,
+            report: null,
+            log: '',
+            lastReportPreview: ''
+          }
+        },
+        methods: {
+          async browseDb(){
+            const r = await fetch('/dialog/open-file?ext=db');
+            const j = await r.json(); if (j.path) this.originalDbPath = j.path;
+          },
+          async browseReports(){
+            const r = await fetch('/dialog/open-folder'); const j = await r.json(); if (j.path) this.reportsFolder = j.path;
+          },
+          async browseXlsx(){
+            const r = await fetch('/dialog/open-file?ext=xlsx'); const j = await r.json(); if (j.path) this.xlsxPath = j.path;
+          },
+          async browseXlsxToConvert(){
+            const r = await fetch('/dialog/open-file?ext=xlsx'); const j = await r.json(); if (j.path) this.xlsxToConvert = j.path;
+          },
+          async generateTemplate(){
+            // ask user for a JSON source; default to materials_parsed.json if exists
+            const jsonPath = 'materials_parsed.json';
+            const xlsxPath = this.xlsxPath.endsWith('.xlsx') ? this.xlsxPath : (this.xlsxPath.replace(/\\$/,'') + '\\' + this.xlsxOutName);
+            this.log = 'Generating template...';
+            const res = await fetch('/generate-template', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ jsonPath, xlsxPath }) });
+            const j = await res.json();
+            if (res.ok) { this.log = 'Template generated: ' + xlsxPath; this.xlsxPath = xlsxPath; } else { this.log = 'Error: ' + j.error; }
+          },
+          async runImport(){
+            if (!this.xlsxToConvert) { alert('Select XLSX to convert'); return; }
+            if (!this.outDbPath) { alert('Set output DB path'); return; }
+            this.log = 'Running import...';
+            const body = { xlsxPath: this.xlsxToConvert, outDbPath: this.outDbPath, originalDbPath: this.originalDbPath, reportFolder: this.reportsFolder };
+            const res = await fetch('/import', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+            const j = await res.json();
+            if (res.ok) {
+              this.log = 'Import succeeded. New DB: ' + j.outDbPath + '\nReport: ' + j.reportPath;
+              this.report = j.report; this.lastReportPreview = JSON.stringify(j.report.sample, null, 2);
+            } else {
+              this.log = 'Import failed: ' + j.error;
+            }
+          },
+          async loadLatestReport(){
+            try {
+              const res = await fetch('/report'); if (!res.ok) throw new Error('no report'); const j = await res.json(); this.report = j; this.lastReportPreview = JSON.stringify(j.sample, null, 2);
+            } catch (e){ this.log = 'Failed to load latest report: ' + e.message }
+          },
+          async openTemplate(){ if (!this.xlsxPath) return alert('set xlsxPath'); await fetch('/open', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ filePath: this.xlsxPath, sheetName: 'Materials', row: 1 }) }); },
+          async openOutputDb(){ if (!this.outDbPath) return alert('set outDbPath'); const folder = this.outDbPath.replace(/[^\\]+$/, ''); await fetch('/dialog/open-folder'); /* best-effort: open folder via Start-Process is not implemented here */ alert('Use Explorer to open: ' + folder); },
+          async openAt(sheet, row){ if (!this.xlsxToConvert && !this.xlsxPath) return alert('set excel path'); const file = this.xlsxToConvert || this.xlsxPath; await fetch('/open', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ filePath: file, sheetName: sheet, row }) }); }
+        }
+      }).mount('#app');
+    </script>
+  </body>
+</html>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Materials Report Viewer</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;padding:16px}
+    .dup{background:#fee;border:1px solid #fbb;padding:8px;margin:6px 0}
+    table{border-collapse:collapse;width:100%}
+    th,td{border:1px solid #ddd;padding:6px}
+    button{margin-left:6px}
+  </style>
+</head>
+<body>
+  <div id="app">
+    <h2>Materials Report Viewer</h2>
+    <div>
+      <label>Report file (optional): <input v-model="reportFile" placeholder="reports/report-....json" style="width:400px"/></label>
+      <button @click="load">Load report</button>
+      <button @click="openExcelDefault">Open Excel file</button>
+      <input v-model="excelPath" style="width:500px" placeholder="C:\\_smartWOP\\_Projects\\MatAPP\\materials_template.xlsx"/>
+    </div>
+
+    <h3>Summary</h3>
+    <pre>{{summaryText}}</pre>
+
+    <h3>Duplicates</h3>
+    <div v-if="report.duplicateMaterialNames.length">
+      <h4>Material name duplicates</h4>
+      <div v-for="d in report.duplicateMaterialNames" :key="JSON.stringify(d)\
