@@ -47,28 +47,33 @@ async function importXlsx(xlsxPath, outDbPath, originalDbPath) {
 
   // Only validate material IDs/names: generate missing material IDs first, then check duplicates
   for (const r of materialsRows) ensureId(r, 'material_id', 'material_name');
-  // check duplicate material_name and material_id
-  const matNameMap = new Map();
+  // check duplicates for Materials using composite key (material_name + path)
+  // still enforce unique material_id
+  const namePathMap = new Map();
   const matIdMap = new Map();
-  const matNameDups = new Set();
-  const matIdDups = new Set();
+  const namePathDups = new Map(); // key -> array of rows
   for (const m of materialsRows) {
     const name = String(m.material_name || '').trim();
+    const pathVal = String(m.path || '').trim();
+    const key = `${name}::${pathVal}`;
     const id = String(m.material_id || '').trim();
-    if (name) {
-      if (matNameMap.has(name)) matNameDups.add(name);
-      matNameMap.set(name, (matNameMap.get(name) || 0) + 1);
+    if (name || pathVal) {
+      if (!namePathMap.has(key)) namePathMap.set(key, []);
+      namePathMap.get(key).push(m);
+      if (namePathMap.get(key).length > 1) namePathDups.set(key, namePathMap.get(key).map(r => r.__row));
     }
     if (id) {
-      if (matIdMap.has(id)) matIdDups.add(id);
-      matIdMap.set(id, (matIdMap.get(id) || 0) + 1);
+      if (matIdMap.has(id)) matIdMap.set(id, matIdMap.get(id) + 1);
+      else matIdMap.set(id, 1);
     }
   }
-  if (matNameDups.size > 0) {
-    throw new Error('Materials: duplicate material_name values: ' + Array.from(matNameDups).join(', '));
+  if (namePathDups.size > 0) {
+    const entries = Array.from(namePathDups.keys()).map(k => k + ' (rows: ' + namePathDups.get(k).join(',') + ')');
+    throw new Error('Materials: duplicate material_name+path combinations found: ' + entries.join('; '));
   }
-  if (matIdDups.size > 0) {
-    throw new Error('Materials: duplicate material_id values: ' + Array.from(matIdDups).join(', '));
+  const matIdDups = Array.from(matIdMap.entries()).filter(([id, cnt]) => cnt > 1).map(([id]) => id);
+  if (matIdDups.length > 0) {
+    throw new Error('Materials: duplicate material_id values: ' + matIdDups.join(', '));
   }
 
   // Ensure IDs
@@ -228,7 +233,7 @@ async function generateReport(xlsxPath) {
     panels: panelsRows.length,
     layers: layersRows.length,
     edges: edgesRows.length,
-    duplicateMaterialNames: [],
+  duplicateMaterialNames: [],
     duplicateMaterialIds: [],
     panelsPerMaterial: {},
     layersPerPanel: {},
@@ -236,26 +241,30 @@ async function generateReport(xlsxPath) {
     edgesPerMaterial: {}
   };
 
-  // check duplicates in materials and record row numbers
-  const nameBuckets = new Map();
+  // check duplicates in materials by composite key (name + path)
+  const namePathBuckets = new Map();
   const idBuckets = new Map();
   for (const m of materialsRows) {
     const name = String(m.material_name || '').trim();
     const id = String(m.material_id || '').trim();
-    if (!name && m.__row) {
-      // mark missing name as special duplicate entry
-      report.duplicateMaterialNames.push({ name: null, rows: [m.__row] });
+    const pathVal = String(m.path || '').trim();
+    const key = `${name}::${pathVal}`;
+    if ((!name && !pathVal) && m.__row) {
+      // missing both name and path — record as special
+      report.duplicateMaterialNames.push({ name: null, path: null, rows: [m.__row] });
     }
-    if (name) {
-      if (!nameBuckets.has(name)) nameBuckets.set(name, []);
-      nameBuckets.get(name).push({ row: m.__row, id });
-    }
+    if (!namePathBuckets.has(key)) namePathBuckets.set(key, []);
+    namePathBuckets.get(key).push({ row: m.__row, id, name, path: pathVal });
     if (id) {
       if (!idBuckets.has(id)) idBuckets.set(id, []);
       idBuckets.get(id).push({ row: m.__row, name });
     }
   }
-  for (const [k, arr] of nameBuckets) if (arr.length > 1) report.duplicateMaterialNames.push({ name: k, rows: arr.map(x => x.row), ids: arr.map(x => x.id) });
+  for (const [k, arr] of namePathBuckets) if (arr.length > 1) {
+    // split key into name and path
+    const [n, p] = k.split('::');
+    report.duplicateMaterialNames.push({ name: n || null, path: p || null, rows: arr.map(x => x.row), ids: arr.map(x => x.id) });
+  }
   for (const [k, arr] of idBuckets) if (arr.length > 1) report.duplicateMaterialIds.push({ id: k, rows: arr.map(x => x.row), names: arr.map(x => x.name) });
 
   // panels per material

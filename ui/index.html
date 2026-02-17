@@ -131,9 +131,9 @@
             </tbody>
           </table>
           <div style="margin-top:8px">
-            <strong>Material duplicates:</strong>
+            <strong>Material duplicates (name + path):</strong>
             <div v-for="d in report.duplicateMaterialNames" :key="JSON.stringify(d)" style="padding:6px;border:1px solid #eee;margin-top:6px">
-              <div><strong>Name:</strong> {{d.name || '(missing)'}} — Rows: {{d.rows ? d.rows.join(', ') : 'n/a'}}</div>
+              <div><strong>Name:</strong> {{d.name || '(missing)'}} <span v-if="d.path">— <strong>Path:</strong> {{d.path}}</span> — Rows: {{d.rows ? d.rows.join(', ') : 'n/a'}}</div>
               <button class="secondary" @click="openAt('Materials', (d.rows&&d.rows[0])|| (d.rows_full&&d.rows_full[0].__row))">Open in Excel</button>
             </div>
           </div>
