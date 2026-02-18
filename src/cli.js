@@ -99,7 +99,7 @@ if (cmd === 'parse') {
   }
 
   importXlsx(xlsxPath, outDb, originalDb)
-    .then(() => console.log('Import finished:', outDb))
+    .then((finalPath) => console.log('Import finished:', finalPath))
     .catch(err => {
       if (String(err.message).includes('Materials: duplicate') && !force) {
         console.error('\nImport aborted due to duplicate materials. Re-run with --force to override (not recommended).');

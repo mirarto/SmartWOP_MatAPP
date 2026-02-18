@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const Excel = require('exceljs');
 const { create } = require('xmlbuilder2');
 const { randomUUID } = require('crypto');
@@ -212,8 +213,39 @@ async function importXlsx(xlsxPath, outDbPath, originalDbPath) {
 
   const doc = create(root);
   const xml = doc.end({ prettyPrint: true });
-  fs.writeFileSync(outDbPath, xml, 'utf8');
-  console.log('Written XML to', outDbPath);
+
+  // always timestamp the output DB filename (format: YYYYMMDD_HHMMSS)
+  function pad(n){ return String(n).padStart(2,'0'); }
+  const now = new Date();
+  const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const outDir = path.dirname(outDbPath || process.cwd());
+  const ext = path.extname(outDbPath) || '.db';
+  const base = path.basename(outDbPath, ext) || 'materials_roundtrip';
+  const finalName = `${base}.${ts}${ext}`;
+  const finalPath = path.join(outDir, finalName);
+
+  // archive existing .db files in project root (avoid touching backups in subfolders)
+  try {
+    const root = process.cwd();
+    const archivesDir = path.join(root, 'archives');
+    if (!fs.existsSync(archivesDir)) fs.mkdirSync(archivesDir, { recursive: true });
+    const items = fs.readdirSync(root);
+    for (const it of items) {
+      if (it.toLowerCase().endsWith('.db')) {
+        const full = path.join(root, it);
+        // skip if it's going to be the file we're about to write
+        if (path.resolve(full) === path.resolve(finalPath)) continue;
+        const dest = path.join(archivesDir, it);
+        try { fs.renameSync(full, dest); console.log('Archived', full, '->', dest); } catch(e) { /* ignore individual move errors */ }
+      }
+    }
+  } catch (e) {
+    console.warn('Warning while archiving old DB files:', e && e.message);
+  }
+
+  fs.writeFileSync(finalPath, xml, 'utf8');
+  console.log('Written XML to', finalPath);
+  return finalPath;
 }
 
 // Generate a short report about the XLSX contents (counts, basic dup checks on Materials)

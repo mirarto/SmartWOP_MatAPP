@@ -87,13 +87,19 @@ app.get('/dialog/open-file', (req, res) => {
   let filter = "All files (*.*)|*.*";
   if (ext === 'xlsx') filter = "Excel files (*.xlsx)|*.xlsx|All files (*.*)|*.*";
   if (ext === 'db') filter = "DB files (*.db)|*.db|All files (*.*)|*.*";
-  // build PowerShell script
+  // build PowerShell script that forces the dialog to be topmost by creating a temporary hidden Form
   const script = [];
   script.push("Add-Type -AssemblyName System.Windows.Forms");
+  script.push("$form = New-Object System.Windows.Forms.Form");
+  script.push("$form.TopMost = $true");
+  script.push("$form.Size = New-Object System.Drawing.Size(0,0)");
+  script.push("$form.ShowInTaskbar = $false");
+  script.push("$form.Opacity = 0");
   script.push("$ofd = New-Object System.Windows.Forms.OpenFileDialog");
   script.push(`$ofd.Filter = '${filter.replace(/'/g, "''")}'`);
   script.push("$ofd.Multiselect = $false");
-  script.push("if ($ofd.ShowDialog() -eq 'OK') { Write-Output $ofd.FileName }");
+  script.push("if ($ofd.ShowDialog($form) -eq 'OK') { Write-Output $ofd.FileName }");
+  script.push("$form.Dispose()");
   runPSScript(script.join(os.EOL), (err, out, stderr) => {
     if (err) return res.status(500).json({ error: String(err), stderr });
     res.json({ path: out });
@@ -103,8 +109,14 @@ app.get('/dialog/open-file', (req, res) => {
 app.get('/dialog/open-folder', (req, res) => {
   const script = [];
   script.push("Add-Type -AssemblyName System.Windows.Forms");
+  script.push("$form = New-Object System.Windows.Forms.Form");
+  script.push("$form.TopMost = $true");
+  script.push("$form.Size = New-Object System.Drawing.Size(0,0)");
+  script.push("$form.ShowInTaskbar = $false");
+  script.push("$form.Opacity = 0");
   script.push("$f = New-Object System.Windows.Forms.FolderBrowserDialog");
-  script.push("if ($f.ShowDialog() -eq 'OK') { Write-Output $f.SelectedPath }");
+  script.push("if ($f.ShowDialog($form) -eq 'OK') { Write-Output $f.SelectedPath }");
+  script.push("$form.Dispose()");
   runPSScript(script.join(os.EOL), (err, out, stderr) => {
     if (err) return res.status(500).json({ error: String(err), stderr });
     res.json({ path: out });
